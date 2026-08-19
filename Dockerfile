@@ -46,9 +46,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 
 # Node runtime + supergateway 桥接
+# 注意：supergateway 的 bin 软链目标是 dist/index.js（无 .bin 目录），
+# 必须软链到真实入口文件，否则运行时报 "supergateway: not found"。
 COPY --from=bridge-builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=bridge-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-RUN ln -sf /usr/local/lib/node_modules/.bin/supergateway /usr/local/bin/supergateway
+RUN ln -sf /usr/local/lib/node_modules/supergateway/dist/index.js /usr/local/bin/supergateway
 
 ENV SEARCHPIN_TIMING_LOG=""
 
