@@ -16,10 +16,10 @@ COPY searchpin/ ./searchpin/
 COPY search_server.py ./
 
 # 嵌入模型下载端点：构建时预下载 ~470MB 模型并烘焙进镜像。
-# 国内网络 huggingface.co 不可达，默认走 hf-mirror.com；
-# 海外构建可用 --build-arg HF_ENDPOINT=https://huggingface.co 覆盖。
-# HF_HUB_DISABLE_XET=1：hf-mirror 不支持 xet 传输协议，关闭可避免下载失败。
-ARG HF_ENDPOINT=https://hf-mirror.com
+# 云端构建机通常在海外，默认官方 huggingface.co 可达；
+# 国内本地构建可用 --build-arg HF_ENDPOINT=https://hf-mirror.com 覆盖。
+# HF_HUB_DISABLE_XET=1：兼容 hf-mirror（不支持 xet 传输协议），对官方源也无害。
+ARG HF_ENDPOINT=https://huggingface.co
 ENV HF_ENDPOINT=${HF_ENDPOINT}
 ENV HF_HUB_DISABLE_XET=1
 
