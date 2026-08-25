@@ -15,6 +15,24 @@
 
 默认接入**百度、搜狗、Bing CN、Bing Intl** 四条搜索引擎，四路并行查询。全程国内网络直连，无需代理、无需 VPN。大部分海外同类项目依赖 Google、DuckDuckGo、Brave 等引擎，在国内基本不可用。
 
+### 🌍 可选 Google 后端（海外部署）
+
+部署在海外——Railway、Fly.io、境外 VPS？设置环境变量 `SEARCHPIN_ENABLE_GOOGLE=1`，即可在并行批次中加入第五个引擎 **Google**（使用 `udm=14` 轻量无 JS 布局；新闻走 `tbm=nws` 垂直频道；时间过滤 `tbs=qdr:` 原生支持）。
+
+国内网络无法直连 google.com，因此该选项默认关闭——在国内开启只会让每次搜索平白多等一个超时。在 Railway 上，在服务的 *Variables* 页添加该变量即可；stdio 类 MCP 客户端写法：
+
+```json
+{
+  "mcpServers": {
+    "Searchpin": {
+      "command": "searchpin-server",
+      "args": [],
+      "env": { "SEARCHPIN_ENABLE_GOOGLE": "1" }
+    }
+  }
+}
+```
+
 ### 🧠 语义重排——竞品没有的核心能力
 
 四个引擎返回的所有结果并非简单堆砌，而是通过 embedding 模型按与查询的语义相似度重新排序。你的 AI 拿到的是已经筛选过的高质量结果，不是几十条杂乱链接。在目前免费 MCP 搜索服务器中，具备此能力的**屈指可数**。

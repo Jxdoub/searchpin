@@ -28,17 +28,20 @@ from searchpin.backends import build_backends
 from searchpin.config import (
     DEFAULT_MODEL_NAME,
     DOH_ENDPOINTS,
+    ENABLE_GOOGLE,
     PRODUCT_NAME,
     TIMING_LOG_PATH,
 )
 from searchpin.quality import quality_score
 from searchpin.structured_extract import process as structured_extract_process
 
+_ENGINE_LABEL = "Baidu, Sogou, Bing CN, Bing Intl" + (", Google" if ENABLE_GOOGLE else "")
+
 MCP_TOOLS = [
     {
         "name": "web_search",
         "description": (
-            "Search the web via multiple engines (Baidu, Sogou, Bing CN, Bing Intl). "
+            f"Search the web via multiple engines ({_ENGINE_LABEL}). "
             "Returns ranked titles, URLs, and snippets "
             "(no full page content — use web_fetch to get the full text of any result). "
             "Results re-ranked by embedding similarity — the top results are the most relevant.\n\n"
@@ -231,8 +234,8 @@ MCP_TOOLS = [
 
 class SearchEngine:
     """Self-contained web search engine.  DNS-over-HTTPS, multi-engine
-    search (baidu/sogou/bing_cn/bing_intl), and local embedding re-rank
-    — no external API keys needed."""
+    search (baidu/sogou/bing_cn/bing_intl + optional google), and local
+    embedding re-rank — no external API keys needed."""
 
     _timing_log_path = TIMING_LOG_PATH
 
@@ -794,7 +797,8 @@ class SearchEngine:
         _retry_depth=0,
     ):
         """Web search via DoH-resolved HTTPS. Fires all 4 engines
-        (baidu, sogou, bing_cn, bing_intl) in parallel, then
+        (baidu, sogou, bing_cn, bing_intl — plus google when
+        SEARCHPIN_ENABLE_GOOGLE is on) in parallel, then
         de-duplicates and re-ranks the merged results.
 
         Engine mix designed for complementary coverage:
@@ -802,6 +806,8 @@ class SearchEngine:
           sogou       – WeChat public accounts, Zhihu
           cn.bing.com – Chinese market index (zh-CN Accept-Language)
           www.bing.com – International index (en-US Accept-Language)
+          google      – strongest international index (opt-in for
+                        overseas hosts; unreachable from China)
 
         If one engine's tokenizer splits your query into dictionary
         entries, the others often have the real pages.
@@ -954,6 +960,13 @@ class SearchEngine:
                     print("[SEARCH] sogou homepage cookie seeded", file=sys.stderr, flush=True)
             except Exception:
                 pass
+
+        # ── Google: seed consent cookie before first request ────
+        # Datacenter IPs (Railway, Fly.io, …) frequently land on the EU
+        # consent interstitial instead of results.  SOCS pre-answers the
+        # consent dialog so the first request returns a results page.
+        if host == "www.google.com" and not cookies:
+            cookies = "SOCS=CAESHAgBEhJnd3NfMjAyMzAyMjgtMF9SQzIaAmRlIAEaBgiAo_CmBg"
 
         try:
             print(f"[SEARCH] trying {host}{path}", file=sys.stderr, flush=True)

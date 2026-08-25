@@ -17,6 +17,24 @@ Self-hosted web search for AI agents — zero API keys, zero cost. In 2026, the 
 
 Defaults to **Baidu, Sogou, Bing CN, and Bing Intl** — four search engines queried in parallel. Works natively within China's network, no proxy or VPN needed. Most overseas alternatives rely on Google, DuckDuckGo, or Brave, which are largely inaccessible inside China.
 
+### 🌍 Optional Google Backend (Overseas Deployments)
+
+Running outside mainland China — Railway, Fly.io, a VPS abroad? Set `SEARCHPIN_ENABLE_GOOGLE=1` to add **Google** as a fifth engine in the parallel batch (`udm=14` lightweight layout, `tbm=nws` news vertical, `tbs=qdr:` freshness filters all supported).
+
+Google stays off by default because google.com is unreachable from China networks — enabling it there would just add its connection timeout to every search. On Railway, add the variable under your service's *Variables* tab; for stdio MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "Searchpin": {
+      "command": "searchpin-server",
+      "args": [],
+      "env": { "SEARCHPIN_ENABLE_GOOGLE": "1" }
+    }
+  }
+}
+```
+
 ### 🧠 Semantic Re-ranking — a Differentiator Few Offer
 
 Results from all four engines are not simply concatenated. They are merged and re-ranked by an embedding model based on semantic similarity to the query. What your AI receives is a curated list of high-quality results, not a pile of noisy links. Among free MCP search servers, very few offer this capability.

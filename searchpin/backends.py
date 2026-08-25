@@ -12,6 +12,8 @@ import urllib.parse
 from html import unescape
 from urllib.parse import urlparse
 
+from searchpin import config
+
 # ── CJK query preprocessing ──────────────────────────────────
 # CJK-aware space removal: when a space has a Chinese character
 # on either side, cn.bing.com's tokenizer treats it as a word boundary
@@ -368,13 +370,134 @@ def make_sogou_parser():
     return _parse
 
 
+# ── Google URL builder ───────────────────────────────────────
+
+
+def make_google_path(query, extra="", freshness_suffix=""):
+    """Build a www.google.com search URL.
+    udm=14 requests the lightweight no-JS results layout — friendlier to
+    plain-HTML parsing than the default JS-heavy page.  freshness_suffix
+    (&tbs=qdr:{d,w,m,y}) is natively a Google parameter."""
+    q = prep_query(query)
+    return (
+        f"/search?q={urllib.parse.quote(q)}"
+        f"&num=15&hl=en-US&gl=US&udm=14{extra}{freshness_suffix}"
+    )
+
+
+def make_google_news_path(query, extra="", freshness_suffix=""):
+    """Build a www.google.com news-vertical search URL (tbm=nws)."""
+    q = prep_query(query)
+    return f"/search?q={urllib.parse.quote(q)}&tbm=nws&num=15&hl=en-US&gl=US{extra}{freshness_suffix}"
+
+
+# ── Google parser ────────────────────────────────────────────
+
+_GOOGLE_SELF_NETLOC_RE = re.compile(r"(^|\.)google\.[a-z.]+$|^googleusercontent\.com$|\.gstatic\.com$")
+
+
+def _unwrap_google_href(url):
+    """Resolve /url?q=REAL and https://www.google.com/url?q=REAL redirect
+    links to their real target. Returns None for pure self-links."""
+    parsed = urlparse(url)
+    # Legacy redirect form: path /url, target in q param
+    if parsed.path == "/url":
+        qs = urllib.parse.parse_qs(parsed.query)
+        if qs.get("q"):
+            return qs["q"][0]
+        return None
+    return url
+
+
+def make_google_parser():
+    def _parse(html):
+        results = []
+        seen = set()
+
+        def _self_link(u):
+            try:
+                netloc = urlparse(u).netloc.lower()
+            except Exception:
+                return True
+            return bool(_GOOGLE_SELF_NETLOC_RE.search(netloc))
+
+        def _extract_snippet(tail):
+            for pat in (
+                # Tier 1: current snippet container class
+                r'<div[^>]*class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)</div>',
+                # Tier 2: line-clamped text block (class names rotate)
+                r'<div[^>]*style="[^"]*-webkit-line-clamp[^"]*"[^>]*>(.*?)</div>',
+                # Tier 3: news vertical snippet
+                r'<div[^>]*class="[^"]*GI74Re[^"]*"[^>]*>(.*?)</div>',
+            ):
+                snip_m = re.search(pat, tail, re.DOTALL)
+                if snip_m:
+                    s = re.sub(r"<[^>]+>", "", snip_m.group(1)).strip()
+                    s = unescape(s)
+                    if len(s) > 10:
+                        return s
+            return ""
+
+        # Step 1: anchors that wrap an <h3> title — the canonical
+        # organic-result shape across Google layouts.
+        for m in re.finditer(
+            r'<a[^>]*href="([^"]+)"[^>]*>((?:(?!</a>).)*?)<h3[^>]*>(.*?)</h3>',
+            html,
+            re.DOTALL,
+        ):
+            raw_url = _unwrap_google_href(unescape(m.group(1)))
+            if not raw_url or not raw_url.startswith("http"):
+                continue
+            if _self_link(raw_url):
+                continue
+            url_key = raw_url.lower().rstrip("/")
+            if url_key in seen:
+                continue
+            title = re.sub(r"<[^>]+>", "", m.group(3)).strip()
+            title = unescape(title)
+            if not title or len(title) < 3:
+                continue
+            snippet = _extract_snippet(html[m.end() : m.end() + 3000])
+            seen.add(url_key)
+            results.append({"title": title, "url": raw_url, "snippet": snippet})
+            if len(results) >= 15:
+                break
+
+        # Step 2: fallback — generic external links (layout drift safety
+        # net, same approach as the Baidu/Sogou/Bing parsers).
+        if not results:
+            for m in re.finditer(r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
+                raw_url = _unwrap_google_href(unescape(m.group(1)))
+                if not raw_url or not raw_url.startswith("http"):
+                    continue
+                if _self_link(raw_url):
+                    continue
+                url_key = raw_url.lower().rstrip("/")
+                if url_key in seen:
+                    continue
+                title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+                title = unescape(title)
+                if not title or len(title) < 4:
+                    continue
+                seen.add(url_key)
+                results.append({"title": title, "url": raw_url, "snippet": ""})
+                if len(results) >= 15:
+                    break
+
+        print(f"[SEARCH] google parsed {len(results)} results", file=sys.stderr, flush=True)
+        return results
+
+    return _parse
+
+
 # ── Multi-engine backend builder ─────────────────────────────
 
 
 def build_backends(query, page=0, topic="general", freshness_suffix=""):
     """Build the list of (host, path, parse_fn, follow_redirects, port,
     Accept-Language, pool_tag) tuples for a given query and result page.
-    All 4 engines are included; embedding rerank selects the best results."""
+    The 4 default engines are always included; Google is appended when
+    SEARCHPIN_ENABLE_GOOGLE is on. Embedding rerank selects the best results."""
     _q_encoded_nospace = urllib.parse.quote(prep_query(query))
 
     p_backends = []
@@ -432,4 +555,27 @@ def build_backends(query, page=0, topic="general", freshness_suffix=""):
             f"bing_intl_pg{page}",
         )
     )
+
+    # ── Google (opt-in, overseas deployments) ────────────
+    # Off by default: google.com is unreachable from mainland China
+    # networks, and a dead engine would add its full timeout to every
+    # parallel batch.  Enable with SEARCHPIN_ENABLE_GOOGLE=1 on hosts
+    # that can reach it (Railway, Fly.io, VPS abroad).
+    if config.ENABLE_GOOGLE:
+        _g_extra = f"&start={page * 10}"
+        if topic == "news":
+            _g_path = make_google_news_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
+        else:
+            _g_path = make_google_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
+        p_backends.append(
+            (
+                "www.google.com",
+                _g_path,
+                make_google_parser(),
+                True,
+                443,
+                "en-US,en;q=0.9,zh-CN;q=0.8",
+                f"google_pg{page}",
+            )
+        )
     return p_backends
