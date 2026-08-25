@@ -12,8 +12,6 @@ import urllib.parse
 from html import unescape
 from urllib.parse import urlparse
 
-from searchpin import config
-
 # ── CJK query preprocessing ──────────────────────────────────
 # CJK-aware space removal: when a space has a Chinese character
 # on either side, cn.bing.com's tokenizer treats it as a word boundary
@@ -496,8 +494,7 @@ def make_google_parser():
 def build_backends(query, page=0, topic="general", freshness_suffix=""):
     """Build the list of (host, path, parse_fn, follow_redirects, port,
     Accept-Language, pool_tag) tuples for a given query and result page.
-    The 4 default engines are always included; Google is appended when
-    SEARCHPIN_ENABLE_GOOGLE is on. Embedding rerank selects the best results."""
+    All 5 engines are always included; embedding rerank selects the best results."""
     _q_encoded_nospace = urllib.parse.quote(prep_query(query))
 
     p_backends = []
@@ -556,26 +553,24 @@ def build_backends(query, page=0, topic="general", freshness_suffix=""):
         )
     )
 
-    # ── Google (opt-in, overseas deployments) ────────────
-    # Off by default: google.com is unreachable from mainland China
-    # networks, and a dead engine would add its full timeout to every
-    # parallel batch.  Enable with SEARCHPIN_ENABLE_GOOGLE=1 on hosts
-    # that can reach it (Railway, Fly.io, VPS abroad).
-    if config.ENABLE_GOOGLE:
-        _g_extra = f"&start={page * 10}"
-        if topic == "news":
-            _g_path = make_google_news_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
-        else:
-            _g_path = make_google_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
-        p_backends.append(
-            (
-                "www.google.com",
-                _g_path,
-                make_google_parser(),
-                True,
-                443,
-                "en-US,en;q=0.9,zh-CN;q=0.8",
-                f"google_pg{page}",
-            )
+    # ── Google ───────────────────────────────────────────
+    # Always included.  Datacenter hosts (Railway, Fly.io, VPS abroad)
+    # reach google.com directly; mainland-China-local deployments pay
+    # one dead-engine timeout per parallel batch instead.
+    _g_extra = f"&start={page * 10}"
+    if topic == "news":
+        _g_path = make_google_news_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
+    else:
+        _g_path = make_google_path(query, extra=_g_extra, freshness_suffix=freshness_suffix)
+    p_backends.append(
+        (
+            "www.google.com",
+            _g_path,
+            make_google_parser(),
+            True,
+            443,
+            "en-US,en;q=0.9,zh-CN;q=0.8",
+            f"google_pg{page}",
         )
+    )
     return p_backends

@@ -28,14 +28,13 @@ from searchpin.backends import build_backends
 from searchpin.config import (
     DEFAULT_MODEL_NAME,
     DOH_ENDPOINTS,
-    ENABLE_GOOGLE,
     PRODUCT_NAME,
     TIMING_LOG_PATH,
 )
 from searchpin.quality import quality_score
 from searchpin.structured_extract import process as structured_extract_process
 
-_ENGINE_LABEL = "Baidu, Sogou, Bing CN, Bing Intl" + (", Google" if ENABLE_GOOGLE else "")
+_ENGINE_LABEL = "Baidu, Sogou, Bing CN, Bing Intl, Google"
 
 MCP_TOOLS = [
     {
@@ -796,9 +795,8 @@ class SearchEngine:
         include_domains=None,
         _retry_depth=0,
     ):
-        """Web search via DoH-resolved HTTPS. Fires all 4 engines
-        (baidu, sogou, bing_cn, bing_intl — plus google when
-        SEARCHPIN_ENABLE_GOOGLE is on) in parallel, then
+        """Web search via DoH-resolved HTTPS. Fires all 5 engines
+        (baidu, sogou, bing_cn, bing_intl, google) in parallel, then
         de-duplicates and re-ranks the merged results.
 
         Engine mix designed for complementary coverage:
@@ -806,8 +804,7 @@ class SearchEngine:
           sogou       – WeChat public accounts, Zhihu
           cn.bing.com – Chinese market index (zh-CN Accept-Language)
           www.bing.com – International index (en-US Accept-Language)
-          google      – strongest international index (opt-in for
-                        overseas hosts; unreachable from China)
+          google      – strongest international index
 
         If one engine's tokenizer splits your query into dictionary
         entries, the others often have the real pages.

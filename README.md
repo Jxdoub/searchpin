@@ -15,25 +15,13 @@ Self-hosted web search for AI agents — zero API keys, zero cost. In 2026, the 
 
 ### 🇨🇳 Optimized for Chinese Network Environments
 
-Defaults to **Baidu, Sogou, Bing CN, and Bing Intl** — four search engines queried in parallel. Works natively within China's network, no proxy or VPN needed. Most overseas alternatives rely on Google, DuckDuckGo, or Brave, which are largely inaccessible inside China.
+Defaults to **Baidu, Sogou, Bing CN, Bing Intl, and Google** — five search engines queried in parallel. Works natively within China's network, no proxy or VPN needed (Google results come from the deployed host — Railway, Fly.io, or a VPS abroad — which reaches google.com directly).
 
-### 🌍 Optional Google Backend (Overseas Deployments)
+### 🌍 Google Engine
 
-Running outside mainland China — Railway, Fly.io, a VPS abroad? Set `SEARCHPIN_ENABLE_GOOGLE=1` to add **Google** as a fifth engine in the parallel batch (`udm=14` lightweight layout, `tbm=nws` news vertical, `tbs=qdr:` freshness filters all supported).
+**Google** joins every parallel batch by default (no configuration needed; `udm=14` lightweight layout, `tbm=nws` news vertical, `tbs=qdr:` freshness filters all supported). Results are merged, de-duplicated, and re-ranked together with the other four engines.
 
-Google stays off by default because google.com is unreachable from China networks — enabling it there would just add its connection timeout to every search. On Railway, add the variable under your service's *Variables* tab; for stdio MCP clients:
-
-```json
-{
-  "mcpServers": {
-    "Searchpin": {
-      "command": "searchpin-server",
-      "args": [],
-      "env": { "SEARCHPIN_ENABLE_GOOGLE": "1" }
-    }
-  }
-}
-```
+Running the server on a mainland-China-local machine? google.com is unreachable there and the dead engine adds its connection timeout to every search — in that case comment out the Google block in `backends.py::build_backends()`.
 
 ### 🧠 Semantic Re-ranking — a Differentiator Few Offer
 

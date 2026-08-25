@@ -1,6 +1,5 @@
 """Tests for search backend parsers — uses static HTML snippets, no network."""
 
-import searchpin.config
 from searchpin.backends import (
     build_backends,
     make_baidu_parser,
@@ -65,16 +64,19 @@ class TestGooglePaths:
 class TestBuildBackends:
     def test_general_build(self):
         backends = build_backends("test", page=0)
-        assert len(backends) == 4  # baidu, sogou, bing_cn, bing_intl
+        assert len(backends) == 5  # baidu, sogou, bing_cn, bing_intl, google
         hosts = {b[0] for b in backends}
-        assert hosts == {"www.baidu.com", "www.sogou.com", "cn.bing.com", "www.bing.com"}
+        assert hosts == {
+            "www.baidu.com",
+            "www.sogou.com",
+            "cn.bing.com",
+            "www.bing.com",
+            "www.google.com",
+        }
 
-    def test_google_opt_in(self, monkeypatch):
-        """Google is appended only when ENABLE_GOOGLE is on."""
-        assert all(b[0] != "www.google.com" for b in build_backends("test", page=0))
-        monkeypatch.setattr(searchpin.config, "ENABLE_GOOGLE", True)
+    def test_google_included(self):
+        """Google is always part of the parallel batch."""
         backends = build_backends("test", page=0)
-        assert len(backends) == 5
         google = [b for b in backends if b[0] == "www.google.com"]
         assert len(google) == 1
         host, path, parse_fn, follow, port, lang, tag = google[0]
@@ -90,9 +92,8 @@ class TestBuildBackends:
             if "bing" in host:
                 assert "/news/search" in path
 
-    def test_google_news_vertical(self, monkeypatch):
+    def test_google_news_vertical(self):
         """topic=news routes Google to its tbm=nws vertical."""
-        monkeypatch.setattr(searchpin.config, "ENABLE_GOOGLE", True)
         backends = build_backends("breaking news", page=0, topic="news")
         google_paths = [b[1] for b in backends if b[0] == "www.google.com"]
         assert len(google_paths) == 1
@@ -106,9 +107,8 @@ class TestBuildBackends:
         p1_paths = [b[1] for b in backends_p1 if "bing" in b[0]]
         assert p0_paths != p1_paths
 
-    def test_google_pagination_start_offset(self, monkeypatch):
+    def test_google_pagination_start_offset(self):
         """Google paginates via &start=<page*10>."""
-        monkeypatch.setattr(searchpin.config, "ENABLE_GOOGLE", True)
         p0 = [b[1] for b in build_backends("test", page=0) if b[0] == "www.google.com"][0]
         p1 = [b[1] for b in build_backends("test", page=1) if b[0] == "www.google.com"][0]
         assert "start=0" in p0

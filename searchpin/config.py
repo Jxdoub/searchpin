@@ -10,12 +10,6 @@ import os
 PRODUCT_NAME = os.environ.get("SEARCHPIN_NAME", "Searchpin")
 DEFAULT_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-# ── Optional Google backend (opt-in) ─────────────────────────
-# google.com is unreachable from mainland-China networks, so it is
-# OFF by default to keep zero-latency-cost behaviour there.  Enable on
-# overseas hosts (Railway, Fly.io, VPS abroad) with SEARCHPIN_ENABLE_GOOGLE=1.
-ENABLE_GOOGLE = os.environ.get("SEARCHPIN_ENABLE_GOOGLE", "").strip().lower() in ("1", "true", "yes", "on")
-
 # ── DNS-over-HTTPS endpoints (tried in order) ─────────────────
 DOH_ENDPOINTS = [
     ("https://dns.google/resolve", "8.8.8.8"),
