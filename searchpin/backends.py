@@ -373,7 +373,7 @@ def make_sogou_parser():
 
 # ── Google via Serper.dev JSON API ───────────────────────────
 
-SERPER_API_HOST = "api.serper.dev"
+SERPER_API_HOST = "google.serper.dev"
 
 
 def make_serper_parser():
