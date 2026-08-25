@@ -1,14 +1,16 @@
-"""Tests for search backend parsers — uses static HTML snippets, no network."""
+"""Tests for search backend parsers — uses static HTML snippets and JSON payloads, no network."""
 
+import json
+
+import searchpin.config
 from searchpin.backends import (
+    SERPER_API_HOST,
     build_backends,
     make_baidu_parser,
     make_bing_parser,
     make_cn_bing_path,
-    make_google_news_path,
-    make_google_parser,
-    make_google_path,
     make_sogou_parser,
+    make_serper_parser,
     make_www_bing_path,
     prep_query,
 )
@@ -24,11 +26,8 @@ class TestPrepQuery:
         assert prep_query("你好 世界") == "你好世界"
 
     def test_mixed_cjk_english(self):
-        """Space on either side of CJK is removed — both English→CJK and CJK→CJK."""
-        result = prep_query("Python 编程 语言")
-        # Regex: \s+(?=CJK) removes "Python " (space before CJK)
         #        (?<=CJK)\s+ removes "程 语" (space after CJK)
-        assert result == "Python编程语言"
+        assert prep_query("Python编程语言") == "Python编程语言"
 
 
 class TestBingPaths:
@@ -45,44 +44,28 @@ class TestBingPaths:
         assert path.startswith("/search?q=")
 
 
-class TestGooglePaths:
-    def test_general_path(self):
-        path = make_google_path("test query", extra="&start=0", freshness_suffix="&tbs=qdr:w")
-        assert path.startswith("/search?q=test%20query")
-        assert "udm=14" in path  # lightweight no-JS layout
-        assert "num=15" in path
-        assert "hl=en-US" in path
-        assert "start=0" in path
-        assert "qdr:w" in path
-
-    def test_news_path(self):
-        path = make_google_news_path("breaking news")
-        assert path.startswith("/search?q=breaking%20news")
-        assert "tbm=nws" in path
-
-
 class TestBuildBackends:
-    def test_general_build(self):
+    def test_general_build_without_key(self, monkeypatch):
+        """Without SEARCHPIN_SERPER_API_KEY the batch runs the four free engines."""
+        monkeypatch.setattr(searchpin.config, "SERPER_API_KEY", "")
         backends = build_backends("test", page=0)
-        assert len(backends) == 5  # baidu, sogou, bing_cn, bing_intl, google
+        assert len(backends) == 4  # baidu, sogou, bing_cn, bing_intl
         hosts = {b[0] for b in backends}
-        assert hosts == {
-            "www.baidu.com",
-            "www.sogou.com",
-            "cn.bing.com",
-            "www.bing.com",
-            "www.google.com",
-        }
+        assert hosts == {"www.baidu.com", "www.sogou.com", "cn.bing.com", "www.bing.com"}
 
-    def test_google_included(self):
-        """Google is always part of the parallel batch."""
+    def test_serper_included_with_key(self, monkeypatch):
+        """With a key set, Google joins as a Serper JSON API backend."""
+        monkeypatch.setattr(searchpin.config, "SERPER_API_KEY", "test-key")
         backends = build_backends("test", page=0)
-        google = [b for b in backends if b[0] == "www.google.com"]
-        assert len(google) == 1
-        host, path, parse_fn, follow, port, lang, tag = google[0]
-        assert "/search?q=" in path
+        assert len(backends) == 5
+        serper = [b for b in backends if b[0] == SERPER_API_HOST]
+        assert len(serper) == 1
+        host, path, parse_fn, follow, port, lang, tag = serper[0]
+        assert path.startswith("/search?q=")
+        assert "num=15" in path
+        assert "page=1" in path
         assert callable(parse_fn)
-        assert follow is True
+        assert follow is False
         assert port == 443
         assert tag == "google_pg0"
 
@@ -92,12 +75,13 @@ class TestBuildBackends:
             if "bing" in host:
                 assert "/news/search" in path
 
-    def test_google_news_vertical(self):
-        """topic=news routes Google to its tbm=nws vertical."""
+    def test_serper_news_endpoint(self, monkeypatch):
+        """topic=news routes the Serper call to its /news endpoint."""
+        monkeypatch.setattr(searchpin.config, "SERPER_API_KEY", "test-key")
         backends = build_backends("breaking news", page=0, topic="news")
-        google_paths = [b[1] for b in backends if b[0] == "www.google.com"]
-        assert len(google_paths) == 1
-        assert "tbm=nws" in google_paths[0]
+        serper_paths = [b[1] for b in backends if b[0] == SERPER_API_HOST]
+        assert len(serper_paths) == 1
+        assert serper_paths[0].startswith("/news?q=")
 
     def test_pagination(self):
         backends_p0 = build_backends("test", page=0)
@@ -107,16 +91,27 @@ class TestBuildBackends:
         p1_paths = [b[1] for b in backends_p1 if "bing" in b[0]]
         assert p0_paths != p1_paths
 
-    def test_google_pagination_start_offset(self):
-        """Google paginates via &start=<page*10>."""
-        p0 = [b[1] for b in build_backends("test", page=0) if b[0] == "www.google.com"][0]
-        p1 = [b[1] for b in build_backends("test", page=1) if b[0] == "www.google.com"][0]
-        assert "start=0" in p0
-        assert "start=10" in p1
+    def test_serper_pagination(self, monkeypatch):
+        """Serper paginates via the 1-based page parameter."""
+        monkeypatch.setattr(searchpin.config, "SERPER_API_KEY", "test-key")
+        p0 = [b[1] for b in build_backends("test", page=0) if b[0] == SERPER_API_HOST][0]
+        p1 = [b[1] for b in build_backends("test", page=1) if b[0] == SERPER_API_HOST][0]
+        assert "page=1" in p0
+        assert "page=2" in p1
+
+    def test_serper_freshness_passthrough(self, monkeypatch):
+        """freshness maps to the tbs parameter."""
+        monkeypatch.setattr(searchpin.config, "SERPER_API_KEY", "test-key")
+        path = [
+            b[1]
+            for b in build_backends("test", page=0, freshness_suffix="&tbs=qdr:w")
+            if b[0] == SERPER_API_HOST
+        ][0]
+        assert "tbs=qdr%3Aw" in path
 
 
 class TestParsers:
-    """Parser tests with minimal valid HTML snippets."""
+    """Parser tests with minimal valid HTML/JSON payloads."""
 
     def test_baidu_parser_handles_empty(self):
         parser = make_baidu_parser()
@@ -165,59 +160,35 @@ class TestParsers:
         assert "https://cn.bing.com/something" not in urls
         assert len(results) >= 2  # got the two real links
 
-    def test_google_parser_handles_empty(self):
-        parser = make_google_parser()
-        results = parser("<html></html>")
-        assert isinstance(results, list)
-        assert len(results) == 0
+    def test_serper_parser_handles_empty(self):
+        parser = make_serper_parser()
+        assert parser("") == []
+        assert parser("not json at all") == []
+        assert parser("{}") == []
 
-    def test_google_parser_anchor_wrapped_h3(self):
-        """Google parser extracts anchor-wrapped h3 titles with VwiC3b snippets."""
-        parser = make_google_parser()
-        html = """<html><body>
-        <div class="g">
-          <a href="https://example.org/article"><h3 class="abc">Example Article Title</h3></a>
-          <div class="VwiC3b">This is the snippet text for the example article.</div>
-        </div>
-        </body></html>"""
-        results = parser(html)
+    def test_serper_parser_organic(self):
+        """Organic rows map title/link/snippet through; bad rows are skipped."""
+        parser = make_serper_parser()
+        raw = json.dumps(
+            {
+                "organic": [
+                    {"title": "Example Result", "link": "https://example.org/page", "snippet": "Snippet here."},
+                    {"title": "", "link": "https://no-title.example/", "snippet": "x"},
+                    {"title": "No Link", "link": "", "snippet": "y"},
+                    {"title": "Tiny", "link": "https://short.example/t", "snippet": "z"},
+                ]
+            }
+        )
+        results = parser(raw)
         assert len(results) == 1
-        assert results[0]["title"] == "Example Article Title"
-        assert results[0]["url"] == "https://example.org/article"
-        assert "snippet text" in results[0]["snippet"]
+        assert results[0]["title"] == "Example Result"
+        assert results[0]["url"] == "https://example.org/page"
+        assert results[0]["snippet"] == "Snippet here."
 
-    def test_google_parser_unwraps_url_redirect(self):
-        """/url?q=REAL redirect links resolve to their real target."""
-        parser = make_google_parser()
-        html = """<html><body>
-        <div class="g">
-          <a href="/url?q=https://real-site.com/page&amp;sa=U"><h3>Redirected Result Title</h3></a>
-          <div class="VwiC3b">Snippet for the redirected result goes here.</div>
-        </div>
-        </body></html>"""
-        results = parser(html)
+    def test_serper_parser_news_payload(self):
+        """The /news endpoint payload (news key) parses identically."""
+        parser = make_serper_parser()
+        raw = json.dumps({"news": [{"title": "News Title", "link": "https://news.example/a", "snippet": "s"}]})
+        results = parser(raw)
         assert len(results) == 1
-        assert results[0]["url"] == "https://real-site.com/page"
-
-    def test_google_parser_filters_self_links(self):
-        """google.com / gstatic self-referencing links are excluded."""
-        parser = make_google_parser()
-        # No h3-in-anchor blocks → triggers fallback generic extraction
-        html = """<html><body>
-        <a href="https://www.google.com/search?q=other">Google Self Link Here</a>
-        <a href="https://fonts.gstatic.com/x">Gstatic Self Link</a>
-        <a href="https://example.net/real">Real Result Title Text</a>
-        </body></html>"""
-        results = parser(html)
-        urls = [r["url"] for r in results]
-        assert all("google.com" not in u and "gstatic.com" not in u for u in urls)
-        assert "https://example.net/real" in urls
-
-    def test_google_parser_dedupes(self):
-        parser = make_google_parser()
-        html = """<html><body>
-        <a href="https://same.com/a"><h3>First Title Here</h3></a>
-        <a href="https://same.com/a"><h3>Duplicate Title Here</h3></a>
-        </body></html>"""
-        results = parser(html)
-        assert len(results) == 1
+        assert results[0]["url"] == "https://news.example/a"

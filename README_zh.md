@@ -13,13 +13,27 @@
 
 ### 🇨🇳 专为中国网络环境优化
 
-默认接入**百度、搜狗、Bing CN、Bing Intl、Google** 五条搜索引擎，五路并行查询。全程国内网络直连，无需代理、无需 VPN（Google 结果由部署主机抓取——Railway、Fly.io 或境外 VPS 可直接访问 google.com）。
+默认接入**百度、搜狗、Bing CN、Bing Intl** 四条免费搜索引擎并行查询，另可通过 [Serper.dev](https://serper.dev) API 接入 **Google**（需配置 API Key）。全程国内网络直连，无需代理、无需 VPN。
 
-### 🌍 Google 引擎
+### 🌍 Google 引擎（Serper.dev）
 
-**Google** 默认加入每一次并行批次，无需任何配置（使用 `udm=14` 轻量无 JS 布局；新闻走 `tbm=nws` 垂直频道；时间过滤 `tbs=qdr:` 原生支持）。结果与其余四个引擎合并去重后统一重排。
+Google 会对共享数据中心 IP 弹出 `/sorry` 人机验证页，从 Railway 这类平台直接抓取 google.com 并不可靠。因此 Google 后端改为调用 **Serper.dev** 的 JSON API（支持 `/search`、`/news` 垂直与 `tbs=` 时间过滤），结果与其余引擎走同一套去重 + 重排管线。
 
-如果把服务端跑在国内本地机器上，google.com 无法直连，死引擎会让每次搜索平白多等一个超时——此时注释掉 `backends.py::build_backends()` 中的 Google 代码块即可。
+设置环境变量 `SEARCHPIN_SERPER_API_KEY` 即可启用（免费额度：每月 2500 次查询）。在 Railway 上，于服务的 *Variables* 页添加该变量；stdio 类 MCP 客户端写法：
+
+```json
+{
+  "mcpServers": {
+    "Searchpin": {
+      "command": "searchpin-server",
+      "args": [],
+      "env": { "SEARCHPIN_SERPER_API_KEY": "your-key-here" }
+    }
+  }
+}
+```
+
+未配置 Key 时批次只跑四条免费引擎——Google 会被静默跳过。
 
 ### 🧠 语义重排——竞品没有的核心能力
 

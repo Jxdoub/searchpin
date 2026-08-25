@@ -15,13 +15,27 @@ Self-hosted web search for AI agents — zero API keys, zero cost. In 2026, the 
 
 ### 🇨🇳 Optimized for Chinese Network Environments
 
-Defaults to **Baidu, Sogou, Bing CN, Bing Intl, and Google** — five search engines queried in parallel. Works natively within China's network, no proxy or VPN needed (Google results come from the deployed host — Railway, Fly.io, or a VPS abroad — which reaches google.com directly).
+Defaults to **Baidu, Sogou, Bing CN, and Bing Intl** — four free engines queried in parallel — plus **Google** via the [Serper.dev](https://serper.dev) API when an API key is configured. Works natively within China's network, no proxy or VPN needed.
 
-### 🌍 Google Engine
+### 🌍 Google Engine (Serper.dev)
 
-**Google** joins every parallel batch by default (no configuration needed; `udm=14` lightweight layout, `tbm=nws` news vertical, `tbs=qdr:` freshness filters all supported). Results are merged, de-duplicated, and re-ranked together with the other four engines.
+Google CAPTCHA-walls shared datacenter IPs (the `/sorry` redirect), so scraping google.com directly from hosts like Railway is unreliable. The Google backend therefore calls the **Serper.dev** JSON API instead (`/search` and `/news` endpoints, `tbs=` freshness filters supported) and merges its results into the same dedup + re-rank pipeline as the other engines.
 
-Running the server on a mainland-China-local machine? google.com is unreachable there and the dead engine adds its connection timeout to every search — in that case comment out the Google block in `backends.py::build_backends()`.
+Enable it by setting `SEARCHPIN_SERPER_API_KEY` (free tier: 2500 queries/month). On Railway, add it under your service's *Variables* tab; for stdio MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "Searchpin": {
+      "command": "searchpin-server",
+      "args": [],
+      "env": { "SEARCHPIN_SERPER_API_KEY": "your-key-here" }
+    }
+  }
+}
+```
+
+Without a key the batch simply runs the four free engines — Google is skipped silently.
 
 ### 🧠 Semantic Re-ranking — a Differentiator Few Offer
 

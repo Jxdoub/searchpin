@@ -40,3 +40,4 @@ ROADMAP.md
 DEV-NOTES.md
 session_history_server.py
 validate_rendering.py
+.tmp/

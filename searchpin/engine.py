@@ -24,11 +24,12 @@ from urllib.parse import urlparse
 import numpy as np
 from fastembed import TextEmbedding
 
-from searchpin.backends import build_backends
+from searchpin.backends import SERPER_API_HOST, build_backends
 from searchpin.config import (
     DEFAULT_MODEL_NAME,
     DOH_ENDPOINTS,
     PRODUCT_NAME,
+    SERPER_API_KEY,
     TIMING_LOG_PATH,
 )
 from searchpin.quality import quality_score
@@ -933,6 +934,13 @@ class SearchEngine:
         anti-spider detection. Returns (host, html|status_tag, parse_fn|None, elapsed, tag)."""
         _pool_start = time.time()
 
+        # ── Serper JSON API (google engine) ─────────────────
+        # Not a plain GET: POST the path's query string as the JSON
+        # body with the API-key header, then hand the raw JSON text to
+        # the parser so dedup/rerank downstream stays unchanged.
+        if host == SERPER_API_HOST:
+            return self._serper_fetch_one(path, parse_fn, pool_tag)
+
         with self._engine_backoff_lock:
             bo_until = self._engine_backoff_until.get(host, 0)
         _now = time.time()
@@ -1033,6 +1041,37 @@ class SearchEngine:
         except Exception as e:
             _pool_elapsed = time.time() - _pool_start
             return host, str(e), None, _pool_elapsed, pool_tag
+
+    def _serper_fetch_one(self, path, parse_fn, pool_tag):
+        """POST one Serper.dev request; the path's query string is the JSON
+        payload (endpoint = path prefix). Returns the same tuple shape as
+        _search_fetch_one so the batch pipeline stays uniform."""
+        _pool_start = time.time()
+        parsed = urlparse(path)
+        payload = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        try:
+            conn = http.client.HTTPSConnection(SERPER_API_HOST, timeout=12)
+            conn.request(
+                "POST",
+                parsed.path,
+                body=json.dumps(payload),
+                headers={
+                    "X-API-KEY": SERPER_API_KEY,
+                    "Content-Type": "application/json",
+                },
+            )
+            resp = conn.getresponse()
+            raw = resp.read().decode("utf-8", errors="replace")
+            elapsed = time.time() - _pool_start
+            if resp.status != 200:
+                print(f"[SEARCH] serper[{pool_tag}] HTTP {resp.status}: {raw[:120]}", file=sys.stderr, flush=True)
+                return SERPER_API_HOST, None, None, elapsed, pool_tag
+            print(f"[SEARCH] serper[{pool_tag}] ok ({elapsed:.2f}s)", file=sys.stderr, flush=True)
+            return SERPER_API_HOST, raw, parse_fn, elapsed, pool_tag
+        except Exception as e:
+            elapsed = time.time() - _pool_start
+            print(f"[SEARCH] serper[{pool_tag}] failed after {elapsed:.2f}s: {e}", file=sys.stderr, flush=True)
+            return SERPER_API_HOST, str(e), None, elapsed, pool_tag
 
     def _search_fire_one_page(self, backends, seen_urls):
         """Fire one page batch across all engines in parallel.
